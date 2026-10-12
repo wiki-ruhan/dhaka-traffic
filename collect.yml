@@ -1,0 +1,73 @@
+name: Dhaka traffic collector
+
+on:
+  workflow_dispatch:          # আপনি ফোন থেকে "Run workflow" চাপলে শুরু হয়
+  schedule:
+    - cron: "17 */3 * * *"    # নিরাপত্তা: কোনো কারণে চেইন থেমে গেলে 3 ঘণ্টার মধ্যে আবার চালু হবে
+
+permissions:
+  contents: write
+  actions: write
+
+concurrency:
+  group: dhaka-collector
+  cancel-in-progress: false
+
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 355
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check whether the 30 days are already finished
+        id: check
+        run: |
+          if [ -f data/state.json ] && grep -q '"finished": true' data/state.json; then
+            echo "done=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "done=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/setup-python@v5
+        if: steps.check.outputs.done == 'false'
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Cache browser
+        if: steps.check.outputs.done == 'false'
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: pw-${{ runner.os }}-${{ hashFiles('requirements.txt') }}
+
+      - name: Install
+        if: steps.check.outputs.done == 'false'
+        run: |
+          pip install -r requirements.txt
+          python -m playwright install --with-deps chromium
+
+      - name: Take snapshots every 9.6 minutes
+        if: steps.check.outputs.done == 'false'
+        env:
+          GOOGLE_MAPS_API_KEY: ${{ secrets.GOOGLE_MAPS_API_KEY }}
+          DRIVE_WEBAPP_URL: ${{ secrets.DRIVE_WEBAPP_URL }}
+          DRIVE_TOKEN: ${{ secrets.DRIVE_TOKEN }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          git config user.name "dhaka-traffic-bot"
+          git config user.email "actions@users.noreply.github.com"
+          python runner.py
+
+      - name: Hand over to the next run
+        if: always() && steps.check.outputs.done == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git pull -q || true
+          if grep -q '"finished": true' data/state.json 2>/dev/null; then
+            echo "30 days finished. No new run."
+          else
+            gh workflow run collect.yml --ref "${GITHUB_REF_NAME}"
+          fi

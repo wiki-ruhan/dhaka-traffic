@@ -1,0 +1,6 @@
+playwright==1.47.0
+pillow==10.4.0
+numpy==1.26.4
+pandas==2.2.2
+requests==2.32.3
+holidays
