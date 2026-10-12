@@ -49,6 +49,46 @@ NEWS_TAGS = {
 
 
 # ---------------------------------------------------------------- inputs
+def _score(g, o, r, d):
+    tot = g + o + r + d
+    return round(100 * (o + 2 * r + 3 * d) / (3 * tot), 1) if tot >= 30 else None
+
+
+def merge_shards():
+    """Adds up the raw pixel counts written by all parallel shards into data/snapshots.csv and data/thana.csv."""
+    shard_dir = DATA / "shards"
+    files = sorted(shard_dir.glob("shard_[0-9][0-9].csv")) if shard_dir.exists() else []
+    if not files:
+        return
+    state = json.loads((DATA / "state.json").read_text())
+    start = datetime.fromisoformat(state["start"])
+    total_tiles = config.TILES_X * config.TILES_Y
+    df = pd.concat([pd.read_csv(f) for f in files], ignore_index=True)
+    cols = ["green", "orange", "red", "darkred"]
+    g = df.groupby(["slot", "zone"], as_index=False)[cols + ["tiles_ok", "tiles_total"]].sum()
+    s0 = df[df["shard"] == 0].drop_duplicates("slot").set_index("slot")
+    rows = []
+    for _, r in g.iterrows():
+        when = start + timedelta(seconds=int(r["slot"]) * config.INTERVAL_SECONDS)
+        coverage = r["tiles_ok"] / total_tiles
+        score = _score(*(r[c] for c in cols))
+        rows.append({"timestamp": when.isoformat(), "date": when.date().isoformat(), "hour": when.hour,
+                     "minute": when.minute, "slot": int(r["slot"]), "zone": r["zone"],
+                     **{c: int(r[c]) for c in cols}, "score": "" if score is None else score,
+                     "mode": s0["mode"].get(r["slot"], "") if len(s0) else "",
+                     "quality": "ok" if coverage >= 0.9 else f"partial_{coverage:.0%}",
+                     "drive": s0["drive"].get(r["slot"], "") if len(s0) else "", "coverage": round(coverage, 3)})
+    pd.DataFrame(rows).sort_values(["slot", "zone"]).to_csv(DATA / "snapshots.csv", index=False)
+
+    tfiles = sorted(shard_dir.glob("shard_[0-9][0-9]_thana.csv"))
+    if tfiles:
+        t = pd.concat([pd.read_csv(f) for f in tfiles], ignore_index=True)
+        t = t.groupby(["slot", "thana", "division"], as_index=False)[cols].sum()
+        t["timestamp"] = [(start + timedelta(seconds=int(x) * config.INTERVAL_SECONDS)).isoformat() for x in t["slot"]]
+        t["score"] = [_score(*v) for v in t[cols].itertuples(index=False)]
+        t[["timestamp", "slot", "thana", "division"] + cols + ["score"]].to_csv(DATA / "thana.csv", index=False)
+
+
 def load_hourly():
     f = DATA / "snapshots.csv"
     if not f.exists():
@@ -161,7 +201,7 @@ def ai_summary(day_row, headlines, budget):
                                       "peak_hour", "worst_zone", "rain_mm", "rain_effect", "tags")}
     prompt = (
         "You are helping a traffic researcher in Dhaka, Bangladesh. Below are one day's congestion statistics "
-        "for greater Dhaka (DMP area plus Ashulia, Tongi, Purbachal, Kanchpur, Narayanganj, Keraniganj) (score 0-100 from Google Maps traffic colours, higher = worse) "
+        "for greater Dhaka (a 24 x 32 km rectangle: DMP area plus Tongi-Gazipur, Ashulia, Purbachal, Rupganj, Kanchpur, Keraniganj) (score 0-100 from Google Maps traffic colours, higher = worse) "
         "and that day's news headlines. "
         "In 2-3 plain sentences written in Bangla, explain the most likely reasons for the day's traffic. "
         "Only use the evidence given; say 'সম্ভবত' where unsure and say so if the evidence does not explain it. No preamble.\n\n"
@@ -208,6 +248,7 @@ def level_for(ratio):
 
 
 def build():
+    merge_shards()
     df = load_hourly()
     if df.empty:
         print("No data yet.")

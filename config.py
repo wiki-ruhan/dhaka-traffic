@@ -1,30 +1,43 @@
-"""সেটিংস / Settings for the Dhaka (DMP) traffic collector."""
+"""সেটিংস / Settings for the Dhaka traffic collector (v4: 761 km² rectangle, zoom 18, every 15 min, 30 days, 12 shards)."""
 import math
 
 # ---------------- সময় / Timing ----------------
-INTERVAL_SECONDS = 576          # 9.6 মিনিট পরপর একটি স্ন্যাপশট (দিনে 150টি)
+INTERVAL_SECONDS = 900          # 15 মিনিট পরপর একটি স্ন্যাপশট চক্র (দিনে 96টি)
 COLLECTION_DAYS = 30            # 30 দিন পর স্বয়ংক্রিয়ভাবে বন্ধ হবে
 RUN_MINUTES = 340               # প্রতিটি GitHub রান ~5 ঘণ্টা 40 মিনিট চলে, তারপর নিজেই পরের রান চালু করে
 TIMEZONE = "Asia/Dhaka"
 
-# ---------------- মানচিত্র / Map view: full DMP area ----------------
-ZOOM = 13
-BOUNDS = {"north": 23.935, "south": 23.598, "west": 90.300, "east": 90.550}
+# ---------------- মানচিত্র / Map view ----------------
+ZOOM = 18                       # বিশ্লেষণের জুম: প্রতি পিক্সেল ≈ 0.55 মিটার (গলি পর্যন্ত)
+TILE = 3072                     # পুরো এলাকা এই মাপের টুকরো স্ক্রিনশটে তোলা হয় (জুম 18-এ প্রতি চক্রে 285টি)
+SHARDS = 12                     # এতগুলো GitHub সার্ভার একসাথে কাজ ভাগ করে নেয়, যাতে 15 মিনিটের মধ্যে শেষ হয়
+LABEL_ZOOM = 14                 # বিভাগ/থানার সীমানা-মানচিত্রের রেজোলিউশন (≈8.7 মিটার)
+OVERVIEW_ZOOM = 15              # Drive-এ রাখার জন্য পুরো এলাকার একটি ছবি এই জুমে তোলা হয় (জুম 18-এর পূর্ণ ছবি ~1–2 GB হতো)
+STUDY_VERSION = 4               # এই সংখ্যা বদলালে পুরোনো তথ্য data/old_vN ফোল্ডারে সরে যায় এবং ৩০ দিন নতুন করে শুরু হয়
+PAGE_WAIT_FIRST = 15000         # প্রথম পেজ লোডের পর অপেক্ষা (মিলিসেকেন্ড)
+PAGE_WAIT = 7000                # পরের প্রতিটি টুকরোর জন্য অপেক্ষা
 
-# গবেষণা এলাকার সীমানা: ব্যবহারকারীর আঁকা লাল রেখা (আশুলিয়া–টঙ্গী–পূর্বাচল–কাঁচপুর–নারায়ণগঞ্জ–কেরানীগঞ্জ–আমিনবাজার)
-# Study-area boundary traced from the user's map (lat, lng). Only pixels inside this polygon are counted.
+# ---------------- হটস্পট (ঐচ্ছিক) ----------------
+# পুরো এলাকাই এখন জুম 18-এ মাপা হয়, তাই আলাদা হটস্পট দরকার নেই। চাইলে এখানে যোগ করা যায়:
+# HOTSPOTS = {"Farmgate": {"bn": "ফার্মগেট", "at": (23.7577, 90.3897)}}
+HOTSPOT_ZOOM = 18
+HOTSPOT_SIZE = 2048
+HOTSPOT_IMAGE_EVERY = 4
+HOTSPOTS = {}
+
+# Drive-এ মোট জায়গার সর্বোচ্চ সীমা। প্রতিটি ছবি দরকার হলে স্বয়ংক্রিয়ভাবে ছোট করা হয় যাতে এই সীমা পার না হয়।
+STORAGE_LIMIT_GB = 13.5               # 14 GB-এর নিচে থাকতে কিছুটা নিরাপত্তা-ফাঁক
+
+# google.com/maps-এর সার্চ বক্স, বাটন ও কার্ড যেন মানচিত্র না ঢাকে, তাই চারপাশে ফাঁকা জায়গা রেখে পরে কেটে ফেলা হয়
+UI_MARGIN = {"left": 110, "top": 210, "right": 60, "bottom": 150}
+BOUNDS = {"north": 23.9501, "south": 23.6641, "west": 90.3103, "east": 90.5458}
+
+# গবেষণা এলাকা: আয়তক্ষেত্র, ব্যবহারকারীর স্ক্রিনশটের হুবহু সীমানা ও অনুপাত (972:1290 = 0.7535)।
+# উত্তরে বোর্ড বাজার (গাজীপুর), দক্ষিণে কেরানীগঞ্জ ও সিদ্ধিরগঞ্জ, পশ্চিমে আশুলিয়া-বিরুলিয়া, পূর্বে রূপগঞ্জ। ≈ 24.0 × 31.7 কিমি = 761 বর্গকিমি।
+# Study area: rectangle matching the user's screenshot exactly (lat, lng corners).
 STUDY_POLYGON = [
-    (23.9070, 90.3075), (23.9214, 90.3247), (23.9249, 90.3622), (23.9186, 90.3966), (23.8987, 90.4216),
-    (23.8702, 90.4309), (23.8518, 90.4403), (23.8503, 90.4872), (23.8589, 90.5216), (23.8418, 90.5372),
-    (23.8162, 90.5403), (23.7735, 90.5309), (23.7480, 90.5184), (23.7167, 90.5091), (23.6740, 90.5091),
-    (23.6313, 90.5044), (23.6143, 90.4903), (23.6057, 90.4591), (23.6171, 90.4247), (23.6484, 90.4091),
-    (23.6712, 90.3903), (23.6882, 90.3622), (23.7110, 90.3372), (23.7366, 90.3247), (23.7508, 90.3169),
-    (23.7878, 90.3294), (23.8304, 90.3247), (23.8589, 90.3247), (23.8759, 90.3153),
+    (23.9501, 90.3103), (23.9501, 90.5458), (23.6641, 90.5458), (23.6641, 90.3103),
 ]
-
-# ---------------- ছবি সংরক্ষণ / Image storage ----------------
-DRIVE_IMAGE_FORMAT = "jpg"      # "jpg" (~0.5 MB/ছবি, 30 দিনে ~2.3 GB) অথবা "png" (~2.5 MB/ছবি, ~11 GB)
-JPG_QUALITY = 90
 
 # ---------------- আবহাওয়া ও AI ----------------
 WEATHER_LAT, WEATHER_LNG = 23.8103, 90.4125
@@ -47,15 +60,14 @@ DIVISIONS = {
 
 # DMP-এর বাইরের এলাকা (নিজস্ব অঞ্চল হিসেবে আলাদা স্কোর পাবে) / Areas outside DMP, each scored separately
 EXTRA_AREAS = {
-    "Ashulia":     {"bn": "আশুলিয়া",            "pts": [(23.9020, 90.3300)]},
-    "Birulia":     {"bn": "বিরুলিয়া",           "pts": [(23.8480, 90.3330)]},
-    "Aminbazar":   {"bn": "আমিনবাজার",          "pts": [(23.7880, 90.3230)]},
-    "Tongi":       {"bn": "টঙ্গী",              "pts": [(23.9060, 90.4050)]},
-    "Purbachal":   {"bn": "পূর্বাচল",            "pts": [(23.8520, 90.4950), (23.8350, 90.5250)]},
-    "Rupganj-Tarabo": {"bn": "রূপগঞ্জ–তারাবো",   "pts": [(23.7400, 90.5200), (23.7750, 90.5180)]},
+    "Gazipur-Tongi": {"bn": "টঙ্গী–গাজীপুর",      "pts": [(23.9060, 90.4050), (23.9400, 90.3850), (23.9300, 90.4300)]},
+    "Ashulia":       {"bn": "আশুলিয়া",           "pts": [(23.9020, 90.3300), (23.9350, 90.3300)]},
+    "Birulia":       {"bn": "বিরুলিয়া",          "pts": [(23.8480, 90.3330)]},
+    "Aminbazar":     {"bn": "আমিনবাজার",         "pts": [(23.7880, 90.3230)]},
+    "Purbachal":     {"bn": "পূর্বাচল",           "pts": [(23.8520, 90.4950), (23.8350, 90.5250), (23.8800, 90.5100)]},
+    "Rupganj-Tarabo": {"bn": "রূপগঞ্জ–তারাবো",   "pts": [(23.7400, 90.5200), (23.7750, 90.5180), (23.8050, 90.5350)]},
     "Kanchpur-Siddhirganj": {"bn": "কাঁচপুর–সিদ্ধিরগঞ্জ", "pts": [(23.7080, 90.5150), (23.6850, 90.4990)]},
-    "Narayanganj": {"bn": "নারায়ণগঞ্জ ও ফতুল্লা",  "pts": [(23.6230, 90.4990), (23.6450, 90.4780)]},
-    "Keraniganj":  {"bn": "কেরানীগঞ্জ",          "pts": [(23.6950, 90.3850), (23.6550, 90.4100), (23.7000, 90.4050), (23.7350, 90.3380)]},
+    "Keraniganj":    {"bn": "কেরানীগঞ্জ",         "pts": [(23.6950, 90.3850), (23.7000, 90.4050), (23.7350, 90.3380), (23.6750, 90.3400), (23.6750, 90.4200)]},
 }
 EXTRA_COLOR = "#7F8C8D"
 
@@ -92,26 +104,66 @@ THANAS = {
 
 
 # ---------------- Web Mercator helpers ----------------
-def _project(lat, lng):
-    world = 256 * 2 ** ZOOM
+def project(lat, lng, zoom=None):
+    """World pixel position of a lat/lng at a zoom level."""
+    world = 256 * 2 ** (ZOOM if zoom is None else zoom)
     x = (lng + 180.0) / 360.0 * world
     s = math.sin(math.radians(lat))
     y = (0.5 - math.log((1 + s) / (1 - s)) / (4 * math.pi)) * world
     return x, y
 
 
-_x0, _y0 = _project(BOUNDS["north"], BOUNDS["west"])
-_x1, _y1 = _project(BOUNDS["south"], BOUNDS["east"])
-VIEW_W, VIEW_H = int(round(_x1 - _x0)), int(round(_y1 - _y0))
-_cx, _cy = (_x0 + _x1) / 2, (_y0 + _y1) / 2
-CENTER_LNG = _cx / (256 * 2 ** ZOOM) * 360 - 180
-CENTER_LAT = math.degrees(math.atan(math.sinh(math.pi * (1 - 2 * _cy / (256 * 2 ** ZOOM)))))
+def unproject(x, y, zoom=None):
+    world = 256 * 2 ** (ZOOM if zoom is None else zoom)
+    lng = x / world * 360 - 180
+    lat = math.degrees(math.atan(math.sinh(math.pi * (1 - 2 * y / world))))
+    return lat, lng
+
+
+# study frame at ZOOM (analysis), starting at the north-west corner
+FRAME_X0, FRAME_Y0 = project(BOUNDS["north"], BOUNDS["west"])
+_fx1, _fy1 = project(BOUNDS["south"], BOUNDS["east"])
+VIEW_W, VIEW_H = int(math.ceil(_fx1 - FRAME_X0)), int(math.ceil(_fy1 - FRAME_Y0))
+TILES_X, TILES_Y = math.ceil(VIEW_W / TILE), math.ceil(VIEW_H / TILE)
+GRID_W, GRID_H = TILES_X * TILE, TILES_Y * TILE          # tile grid covering the frame
+
+# label grid (zones/thanas) at LABEL_ZOOM: one label pixel = LABEL_FACTOR analysis pixels
+LABEL_FACTOR = 2 ** (ZOOM - LABEL_ZOOM)
+assert TILE % LABEL_FACTOR == 0, "TILE must be divisible by 2**(ZOOM-LABEL_ZOOM)"
+LAB_W, LAB_H = GRID_W // LABEL_FACTOR, GRID_H // LABEL_FACTOR
+OVERVIEW_SCALE = 1 / LABEL_FACTOR                         # kept for older helpers
+OV_W, OV_H = LAB_W, LAB_H
+
+# overview picture for Drive at OVERVIEW_ZOOM
+OVF_X0, OVF_Y0 = project(BOUNDS["north"], BOUNDS["west"], OVERVIEW_ZOOM)
+_ox1, _oy1 = project(BOUNDS["south"], BOUNDS["east"], OVERVIEW_ZOOM)
+OVF_W, OVF_H = int(math.ceil(_ox1 - OVF_X0)), int(math.ceil(_oy1 - OVF_Y0))
+OVF_TILES_X, OVF_TILES_Y = math.ceil(OVF_W / TILE), math.ceil(OVF_H / TILE)
 
 
 def latlng_to_px(lat, lng):
-    x, y = _project(lat, lng)
-    return x - _cx + VIEW_W / 2, y - _cy + VIEW_H / 2
+    """Pixel position inside the full-resolution tile grid (zoom ZOOM)."""
+    x, y = project(lat, lng)
+    return x - FRAME_X0, y - FRAME_Y0
 
 
-def metres_per_px(lat):
-    return 156543.03392 * math.cos(math.radians(lat)) / (2 ** ZOOM)
+def latlng_to_ov(lat, lng):
+    """Pixel position in the label grid (zoom LABEL_ZOOM)."""
+    x, y = latlng_to_px(lat, lng)
+    return x / LABEL_FACTOR, y / LABEL_FACTOR
+
+
+def latlng_to_overview(lat, lng):
+    """Pixel position in the Drive overview picture (zoom OVERVIEW_ZOOM)."""
+    x, y = project(lat, lng, OVERVIEW_ZOOM)
+    return x - OVF_X0, y - OVF_Y0
+
+
+def browser_center(world_cx, world_cy, zoom, margins):
+    """Centre to request so that the un-covered (clipped) part of the window is centred on (world_cx, world_cy)."""
+    return unproject(world_cx + (margins["right"] - margins["left"]) / 2,
+                     world_cy + (margins["bottom"] - margins["top"]) / 2, zoom)
+
+
+def metres_per_px(lat, zoom=None):
+    return 156543.03392 * math.cos(math.radians(lat)) / (2 ** (ZOOM if zoom is None else zoom))
