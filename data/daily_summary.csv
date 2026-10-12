@@ -1,2 +1,2 @@
 date,weekday,weekday_bn,day_type,day_type_bn,holiday,hours,city_avg,city_peak,peak_hour,worst_zone,worst_zone_score,rain_mm,rain_hours,rain_effect,baseline,level,level_bn,tags,reasons,ai
-2026-10-12,Monday,সোমবার,Workday,কর্মদিবস,,1,17.5,17.5,12,Lalbagh,33.2,0.3,0,,,na,তুলনার জন্য এখনো যথেষ্ট দিন হয়নি,,আংশিক দিন: 1/24 ঘণ্টার তথ্য,
+2026-10-12,Monday,সোমবার,Workday,কর্মদিবস,,1,17.5,17.5,12,Lalbagh,33.2,0.3,0,,,na,তুলনার জন্য এখনো যথেষ্ট দিন হয়নি,Rally / protest,"সংবাদে: মিছিল / সমাবেশ / বিক্ষোভ, আংশিক দিন: 1/24 ঘণ্টার তথ্য",
