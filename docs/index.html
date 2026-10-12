@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="bn">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>ঢাকা যানজট লগ: DMP ট্রাফিক বিভাগভিত্তিক ৩০ দিন</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Hind+Siliguri:wght@400;500;600;700&family=Barlow+Condensed:wght@500;700&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+:root{
+  --bg:#EDF0F2; --surface:#FFFFFF; --ink:#16202A; --muted:#5D6B78; --line:#D5DBE0;
+  --g:#2E9E4F; --a:#F0A030; --r:#DC3B2F; --m:#7B1F22; --none:#E2E6E9; --accent:#1F5FBF;
+  --body:"Hind Siliguri", "Noto Sans Bengali", system-ui, sans-serif;
+  --num:"Barlow Condensed", "Arial Narrow", system-ui, sans-serif;
+  box-sizing:border-box; padding-top:env(safe-area-inset-top,0px); padding-bottom:env(safe-area-inset-bottom,0px);
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#10161B; --surface:#182128; --ink:#E4E9ED; --muted:#93A1AD; --line:#2A353E; --none:#232D35; --accent:#7FB0FF;}}
+:root[data-theme="dark"]{--bg:#10161B; --surface:#182128; --ink:#E4E9ED; --muted:#93A1AD; --line:#2A353E; --none:#232D35; --accent:#7FB0FF;}
+*,*::before,*::after{box-sizing:border-box}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--body);font-size:16px;line-height:1.6}
+main{max-width:1080px;margin:0 auto;padding:20px 16px 48px}
+h1{font-size:clamp(1.6rem,4.6vw,2.4rem);line-height:1.2;margin:0 0 6px;font-weight:700}
+h2{font-size:1.2rem;margin:0 0 4px;font-weight:600}
+p.note{color:var(--muted);margin:0 0 14px;font-size:.92rem;max-width:68ch}
+section{background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:18px 16px;margin-top:16px}
+.status{display:flex;flex-wrap:wrap;gap:10px 22px;margin:10px 0 0}
+.status div{display:flex;flex-direction:column}
+.status b{font-family:var(--num);font-size:1.9rem;line-height:1;font-weight:700}
+.status div.wide b{font-size:1.25rem;line-height:1.5}
+.status span{color:var(--muted);font-size:.85rem}
+.scroll{overflow-x:auto;-webkit-overflow-scrolling:touch}
+/* hero heatmap: a road-strip per day */
+.heat{display:grid;grid-template-columns:50px repeat(24,minmax(9px,1fr));gap:2px;min-width:300px;font-size:.72rem}
+.heat .hd{color:var(--muted);text-align:center;font-family:var(--num)}
+.heat .day{color:var(--muted);white-space:nowrap;padding-right:4px;font-family:var(--num);font-size:.8rem;align-self:center}
+.heat .c{height:16px;border-radius:2px;background:var(--none)}
+.legend{display:flex;align-items:center;gap:8px;margin-top:10px;font-size:.82rem;color:var(--muted)}
+.legend i{display:block;width:150px;height:10px;border-radius:2px;background:linear-gradient(90deg,var(--g),var(--a),var(--r),var(--m))}
+.chart-box{position:relative;height:280px}
+.divs{display:grid;gap:8px}
+.divrow{display:grid;grid-template-columns:124px 1fr 46px;align-items:center;gap:10px}
+.divrow .bar{height:14px;border-radius:2px}
+.divrow .val{font-family:var(--num);font-size:1.1rem;text-align:right}
+.days{display:grid;gap:12px}
+.dayc{border-left:5px solid var(--none);padding:8px 0 8px 12px}
+.dayc h3{margin:0;font-size:1rem;font-weight:600}
+.dayc .meta{color:var(--muted);font-size:.85rem}
+.dayc ul{margin:6px 0 0;padding-left:18px}
+.dayc .ai{margin:6px 0 0;padding:8px 10px;background:var(--bg);border-radius:4px;font-size:.93rem}
+details{margin-top:6px;font-size:.88rem}
+details a{color:var(--accent)}
+.imgs{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px}
+.imgs img{max-width:100%;border-radius:4px;border:1px solid var(--line)}
+.empty{padding:28px 0;color:var(--muted)}
+a:focus-visible,summary:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+footer{color:var(--muted);font-size:.85rem;margin-top:20px;max-width:72ch}
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>ঢাকা মেট্রোপলিটন এলাকার যানজট লগ</h1>
+    <p class="note" id="sub">Google Maps ট্রাফিক রঙ থেকে প্রতি 9.6 মিনিটে মাপা যানজট। DMP-এর ৮টি ট্রাফিক বিভাগ এবং আশুলিয়া থেকে নারায়ণগঞ্জ পর্যন্ত আশপাশের ৯টি এলাকা।</p>
+    <div class="status" id="status"></div>
+  </header>
+
+  <section>
+    <h2>প্রতিদিন, প্রতি ঘণ্টা</h2>
+    <p class="note">প্রতিটি ঘর এক ঘণ্টার গড় যানজট (পুরো গবেষণা এলাকা)। সবুজ মানে রাস্তা ফাঁকা, গাঢ় লাল মানে প্রায় থেমে থাকা।</p>
+    <div class="scroll"><div class="heat" id="heat"></div></div>
+    <div class="legend">০ <i></i> ১০০</div>
+  </section>
+
+  <section>
+    <h2>দৈনিক যানজট সূচক ও বৃষ্টি</h2>
+    <p class="note">রেখা: দিনের গড় যানজট স্কোর। কলাম: সেদিনের মোট বৃষ্টি (মিমি)।</p>
+    <div class="chart-box"><canvas id="daily"></canvas></div>
+  </section>
+
+  <section>
+    <h2>বিভাগ ও এলাকা অনুযায়ী গড় যানজট</h2>
+    <p class="note">পুরো সময়ের গড় স্কোর, বেশি থেকে কম। ধূসর লেখা মানে DMP-এর বাইরের এলাকা।</p>
+    <div class="divs" id="divs"></div>
+  </section>
+
+  <section>
+    <h2>দিনভিত্তিক সম্ভাব্য কারণ</h2>
+    <p class="note">আবহাওয়া, ছুটির তালিকা ও সংবাদ শিরোনাম মিলিয়ে স্বয়ংক্রিয়ভাবে লেখা। এগুলো সম্ভাব্য কারণ, নিশ্চিত প্রমাণ নয়।</p>
+    <div class="days" id="days"></div>
+  </section>
+
+  <section>
+    <h2>সর্বশেষ স্ন্যাপশট</h2>
+    <p class="note">দ্বিতীয় ছবির রঙিন অংশগুলো DMP ট্রাফিক বিভাগ, হালকা ধূসর অংশগুলো DMP-এর বাইরের এলাকা। ভুল জায়গায় থাকলে config.py-তে থানার অবস্থান ঠিক করুন।</p>
+    <div class="imgs">
+      <img src="latest.jpg" alt="সর্বশেষ Google Maps ট্রাফিক স্ন্যাপশট" loading="lazy">
+      <img src="divisions_check.jpg" alt="DMP ট্রাফিক বিভাগের সীমানা যাচাইয়ের ছবি" loading="lazy">
+    </div>
+  </section>
+
+  <footer>
+    পদ্ধতি: প্রতিটি স্ন্যাপশটে সবুজ=0, কমলা=1, লাল=2, গাঢ় লাল=3 ওজন দিয়ে রাস্তার পিক্সেলের গড় নেওয়া হয় এবং 0–100 স্কেলে রূপান্তর করা হয়।
+    বিভাগের সীমানা থানার আনুমানিক কেন্দ্রবিন্দু থেকে তৈরি। কাঁচা তথ্য: data/snapshots.csv, data/thana.csv, data/daily_summary.csv।
+    <span id="updated"></span>
+  </footer>
+</main>
+<script>
+const D = {"empty": false, "updated": "12 Oct 2026, 10:06", "last_snapshot": "12 Oct 2026, 10:06", "day_number": 1, "total_days": 30, "snapshots": 1, "per_day": 150, "drive_ok": 1, "div_meta": {"Ramna": {"bn": "রমনা"}, "Lalbagh": {"bn": "লালবাগ"}, "Motijheel": {"bn": "মতিঝিল"}, "Wari": {"bn": "ওয়ারী"}, "Tejgaon": {"bn": "তেজগাঁও"}, "Mirpur": {"bn": "মিরপুর"}, "Gulshan": {"bn": "গুলশান"}, "Uttara": {"bn": "উত্তরা"}, "Ashulia": {"bn": "আশুলিয়া"}, "Birulia": {"bn": "বিরুলিয়া"}, "Aminbazar": {"bn": "আমিনবাজার"}, "Tongi": {"bn": "টঙ্গী"}, "Purbachal": {"bn": "পূর্বাচল"}, "Rupganj-Tarabo": {"bn": "রূপগঞ্জ–তারাবো"}, "Kanchpur-Siddhirganj": {"bn": "কাঁচপুর–সিদ্ধিরগঞ্জ"}, "Narayanganj": {"bn": "নারায়ণগঞ্জ ও ফতুল্লা"}, "Keraniganj": {"bn": "কেরানীগঞ্জ"}}, "mode": "web", "days": [{"date": "2026-10-12", "weekday": "Monday", "weekday_bn": "সোমবার", "day_type": "Workday", "day_type_bn": "কর্মদিবস", "holiday": null, "hours": 1, "city_avg": 16.6, "city_peak": 16.6, "peak_hour": 10, "worst_zone": "Lalbagh", "worst_zone_score": 27.7, "rain_mm": 0.2, "rain_hours": 0, "rain_effect": null, "baseline": null, "level": "na", "level_bn": "তুলনার জন্য এখনো যথেষ্ট দিন হয়নি", "tags": [], "headlines": [], "reasons": ["আংশিক দিন: 1/24 ঘণ্টার তথ্য"], "ai": null}], "heat": [{"date": "2026-10-12", "values": [null, null, null, null, null, null, null, null, null, null, 16.6, null, null, null, null, null, null, null, null, null, null, null, null, null]}], "zones": [{"zone": "Lalbagh", "bn": "লালবাগ", "dmp": true, "score": 27.7}, {"zone": "Motijheel", "bn": "মতিঝিল", "dmp": true, "score": 27.0}, {"zone": "Tejgaon", "bn": "তেজগাঁও", "dmp": true, "score": 26.0}, {"zone": "Gulshan", "bn": "গুলশান", "dmp": true, "score": 24.1}, {"zone": "Ashulia", "bn": "আশুলিয়া", "dmp": false, "score": 22.2}, {"zone": "Tongi", "bn": "টঙ্গী", "dmp": false, "score": 19.9}, {"zone": "Rupganj-Tarabo", "bn": "রূপগঞ্জ–তারাবো", "dmp": false, "score": 18.9}, {"zone": "Ramna", "bn": "রমনা", "dmp": true, "score": 16.9}, {"zone": "Keraniganj", "bn": "কেরানীগঞ্জ", "dmp": false, "score": 11.5}, {"zone": "Mirpur", "bn": "মিরপুর", "dmp": true, "score": 11.4}, {"zone": "Uttara", "bn": "উত্তরা", "dmp": true, "score": 10.9}, {"zone": "Wari", "bn": "ওয়ারী", "dmp": true, "score": 9.8}, {"zone": "Narayanganj", "bn": "নারায়ণগঞ্জ ও ফতুল্লা", "dmp": false, "score": 9.7}, {"zone": "Purbachal", "bn": "পূর্বাচল", "dmp": false, "score": 8.2}, {"zone": "Kanchpur-Siddhirganj", "bn": "কাঁচপুর–সিদ্ধিরগঞ্জ", "dmp": false, "score": 8.1}, {"zone": "Birulia", "bn": "বিরুলিয়া", "dmp": false, "score": 3.5}, {"zone": "Aminbazar", "bn": "আমিনবাজার", "dmp": false, "score": 0.0}], "zone_hour": {"Aminbazar": [null, null, null, null, null, null, null, null, null, null, 0.0, null, null, null, null, null, null, null, null, null, null, null, null, null], "Ashulia": [null, null, null, null, null, null, null, null, null, null, 22.2, null, null, null, null, null, null, null, null, null, null, null, null, null], "Birulia": [null, null, null, null, null, null, null, null, null, null, 3.5, null, null, null, null, null, null, null, null, null, null, null, null, null], "Gulshan": [null, null, null, null, null, null, null, null, null, null, 24.1, null, null, null, null, null, null, null, null, null, null, null, null, null], "Kanchpur-Siddhirganj": [null, null, null, null, null, null, null, null, null, null, 8.1, null, null, null, null, null, null, null, null, null, null, null, null, null], "Keraniganj": [null, null, null, null, null, null, null, null, null, null, 11.5, null, null, null, null, null, null, null, null, null, null, null, null, null], "Lalbagh": [null, null, null, null, null, null, null, null, null, null, 27.7, null, null, null, null, null, null, null, null, null, null, null, null, null], "Mirpur": [null, null, null, null, null, null, null, null, null, null, 11.4, null, null, null, null, null, null, null, null, null, null, null, null, null], "Motijheel": [null, null, null, null, null, null, null, null, null, null, 27.0, null, null, null, null, null, null, null, null, null, null, null, null, null], "Narayanganj": [null, null, null, null, null, null, null, null, null, null, 9.7, null, null, null, null, null, null, null, null, null, null, null, null, null], "Purbachal": [null, null, null, null, null, null, null, null, null, null, 8.2, null, null, null, null, null, null, null, null, null, null, null, null, null], "Ramna": [null, null, null, null, null, null, null, null, null, null, 16.9, null, null, null, null, null, null, null, null, null, null, null, null, null], "Rupganj-Tarabo": [null, null, null, null, null, null, null, null, null, null, 18.9, null, null, null, null, null, null, null, null, null, null, null, null, null], "Tejgaon": [null, null, null, null, null, null, null, null, null, null, 26.0, null, null, null, null, null, null, null, null, null, null, null, null, null], "Tongi": [null, null, null, null, null, null, null, null, null, null, 19.9, null, null, null, null, null, null, null, null, null, null, null, null, null], "Uttara": [null, null, null, null, null, null, null, null, null, null, 10.9, null, null, null, null, null, null, null, null, null, null, null, null, null], "Wari": [null, null, null, null, null, null, null, null, null, null, 9.8, null, null, null, null, null, null, null, null, null, null, null, null, null]}};
+
+function scoreColor(s){
+  if(s===null||s===undefined||isNaN(s)) return getComputedStyle(document.documentElement).getPropertyValue('--none');
+  const stops=[[0,[46,158,79]],[33,[240,160,48]],[66,[220,59,47]],[100,[123,31,34]]];
+  s=Math.max(0,Math.min(100,s));
+  for(let i=1;i<stops.length;i++){
+    if(s<=stops[i][0]){
+      const [a,ca]=stops[i-1],[b,cb]=stops[i],t=(s-a)/(b-a);
+      return `rgb(${ca.map((v,k)=>Math.round(v+(cb[k]-v)*t)).join(',')})`;
+    }
+  }
+  return 'rgb(123,31,34)';
+}
+const el=(t,c,txt)=>{const e=document.createElement(t);if(c)e.className=c;if(txt!==undefined)e.textContent=txt;return e;};
+const fmtDate=d=>{const x=new Date(d+'T00:00:00');return x.toLocaleDateString('en-GB',{day:'2-digit',month:'short'});};
+
+function render(){
+  document.getElementById('updated').textContent=' সর্বশেষ হালনাগাদ: '+(D?D.updated:'')+' (ঢাকা সময়)।';
+  if(!D||D.empty){
+    document.getElementById('heat').replaceWith(el('p','empty','এখনো কোনো স্ন্যাপশট নেই। প্রথম রান শেষ হলে এখানে তথ্য দেখা যাবে।'));
+    return;
+  }
+  const st=document.getElementById('status');
+  [[`${D.day_number}/${D.total_days}`,'দিন'],[D.snapshots.toLocaleString('en'),'স্ন্যাপশট'],
+   [D.per_day,'দিনে স্ন্যাপশট'],[D.drive_ok.toLocaleString('en'),'Drive-এ সংরক্ষিত'],[D.last_snapshot,'শেষ স্ন্যাপশট']]
+   .forEach(([v,l],i)=>{const d=el('div',i===4?'wide':'');d.append(el('b','',v),el('span','',l));st.append(d);});
+
+  // heatmap
+  const h=document.getElementById('heat');
+  h.append(el('div','hd',''));
+  for(let i=0;i<24;i++) h.append(el('div','hd',i%3===0?String(i):''));
+  D.heat.forEach(r=>{
+    h.append(el('div','day',fmtDate(r.date)));
+    r.values.forEach((v,i)=>{const c=el('div','c');c.style.background=scoreColor(v);
+      c.title=`${r.date} ${String(i).padStart(2,'0')}:00 — ${v===null?'তথ্য নেই':'স্কোর '+v}`;h.append(c);});
+  });
+
+  // daily chart
+  if(window.Chart){
+    const css=getComputedStyle(document.documentElement);
+    const ink=css.getPropertyValue('--muted').trim(), grid=css.getPropertyValue('--line').trim();
+    new Chart(document.getElementById('daily'),{
+      data:{labels:D.days.map(d=>fmtDate(d.date)),datasets:[
+        {type:'bar',label:'বৃষ্টি (মিমি)',data:D.days.map(d=>d.rain_mm),backgroundColor:'rgba(31,95,191,.35)',yAxisID:'y1',order:2},
+        {type:'line',label:'যানজট স্কোর',data:D.days.map(d=>d.city_avg),borderColor:css.getPropertyValue('--r').trim(),
+         pointBackgroundColor:D.days.map(d=>scoreColor(d.city_avg)),pointRadius:4,tension:.25,yAxisID:'y',order:1}]},
+      options:{maintainAspectRatio:false,animation:false,interaction:{mode:'index',intersect:false},
+        plugins:{legend:{labels:{color:ink,font:{family:'Hind Siliguri'}}}},
+        scales:{x:{ticks:{color:ink},grid:{color:grid}},
+          y:{position:'left',min:0,ticks:{color:ink},grid:{color:grid},title:{display:true,text:'স্কোর',color:ink}},
+          y1:{position:'right',min:0,ticks:{color:ink},grid:{display:false},title:{display:true,text:'মিমি',color:ink}}}}
+    });
+  }
+
+  // divisions
+  const dv=document.getElementById('divs');
+  const mx=Math.max(1,...D.zones.map(z=>z.score));
+  D.zones.forEach(z=>{
+    const r=el('div','divrow');const b=el('div','bar');
+    b.style.width=(z.score/mx*100)+'%';b.style.background=scoreColor(z.score);
+    const wrap=el('div');wrap.append(b);
+    const nm=el('div','',z.bn);if(!z.dmp)nm.style.color='var(--muted)';
+    r.append(nm,wrap,el('div','val',z.score.toFixed(1)));dv.append(r);
+  });
+
+  // day log (newest first)
+  const days=document.getElementById('days');
+  [...D.days].reverse().forEach(d=>{
+    const c=el('article','dayc');c.style.borderLeftColor=scoreColor(d.city_avg);
+    c.append(el('h3','',`${fmtDate(d.date)}, ${d.weekday_bn}: স্কোর ${d.city_avg} (${d.level_bn})`));
+    const worst=d.worst_zone?`, সবচেয়ে খারাপ বিভাগ ${(D.div_meta[d.worst_zone]||{}).bn||d.worst_zone}`:'';
+    c.append(el('div','meta',`${d.day_type_bn}. সর্বোচ্চ যানজট ${String(d.peak_hour).padStart(2,'0')}:00 টায় (স্কোর ${d.city_peak})${worst}.`));
+    if(d.reasons.length){const ul=el('ul');d.reasons.forEach(x=>ul.append(el('li','',x)));c.append(ul);}
+    if(d.ai) c.append(el('p','ai',d.ai));
+    if(d.headlines&&d.headlines.length){
+      const det=el('details');det.append(el('summary','',`সংবাদ শিরোনাম (${d.headlines.length})`));
+      const ul=el('ul');d.headlines.forEach(n=>{const li=el('li');const a=el('a','',n.title);a.href=n.link;a.target='_blank';a.rel='noopener';li.append(a);ul.append(li);});
+      det.append(ul);c.append(det);
+    }
+    days.append(c);
+  });
+}
+render();
+</script>
+</body>
+</html>
