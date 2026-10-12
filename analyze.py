@@ -4,6 +4,7 @@ Reasons come from: weather (Open-Meteo), weekend/holiday calendar, and news head
 If ANTHROPIC_API_KEY is set, an AI model also writes a short plain-language explanation per day.
 """
 import json
+import math
 import os
 import re
 import xml.etree.ElementTree as ET
@@ -55,38 +56,55 @@ def _score(g, o, r, d):
 
 
 def merge_shards():
-    """Adds up the raw pixel counts written by all parallel shards into data/snapshots.csv and data/thana.csv."""
+    """Adds up the raw pixel counts written by all workers into data/snapshots.csv and data/thana.csv."""
     shard_dir = DATA / "shards"
     files = sorted(shard_dir.glob("shard_[0-9][0-9].csv")) if shard_dir.exists() else []
     if not files:
         return
-    state = json.loads((DATA / "state.json").read_text())
-    start = datetime.fromisoformat(state["start"])
     total_tiles = config.TILES_X * config.TILES_Y
-    df = pd.concat([pd.read_csv(f) for f in files], ignore_index=True)
+    df = pd.concat([pd.read_csv(f, dtype={"slot": str}) for f in files], ignore_index=True)
     cols = ["green", "orange", "red", "darkred"]
-    g = df.groupby(["slot", "zone"], as_index=False)[cols + ["tiles_ok", "tiles_total"]].sum()
-    s0 = df[df["shard"] == 0].drop_duplicates("slot").set_index("slot")
+    g = df.groupby(["slot", "zone"], as_index=False).agg(
+        {**{c: "sum" for c in cols}, "tiles_ok": "sum", "timestamp": "first", "captured_at": "min",
+         "capture_end": "max", "mode": "first"})
+    # upload status per slot: "ok" when every image of that slot reached Drive
+    drive = {}
+    for f in sorted(shard_dir.glob("uploads_[0-9][0-9].csv")):
+        u = pd.read_csv(f, dtype={"slot": str})
+        u = u[~u["file"].str.endswith(".json")]
+        for slot, grp in u.groupby("slot"):
+            ok = (grp["status"] == "ok").all()
+            drive[slot] = "ok" if ok and drive.get(slot, "ok") == "ok" else "error"
     rows = []
     for _, r in g.iterrows():
-        when = start + timedelta(seconds=int(r["slot"]) * config.INTERVAL_SECONDS)
+        when = datetime.fromisoformat(r["timestamp"])
         coverage = r["tiles_ok"] / total_tiles
         score = _score(*(r[c] for c in cols))
         rows.append({"timestamp": when.isoformat(), "date": when.date().isoformat(), "hour": when.hour,
-                     "minute": when.minute, "slot": int(r["slot"]), "zone": r["zone"],
+                     "minute": when.minute, "slot": r["slot"], "zone": r["zone"],
                      **{c: int(r[c]) for c in cols}, "score": "" if score is None else score,
-                     "mode": s0["mode"].get(r["slot"], "") if len(s0) else "",
-                     "quality": "ok" if coverage >= 0.9 else f"partial_{coverage:.0%}",
-                     "drive": s0["drive"].get(r["slot"], "") if len(s0) else "", "coverage": round(coverage, 3)})
+                     "mode": r["mode"], "quality": "ok" if coverage >= 0.9 else f"partial_{coverage:.0%}",
+                     "drive": drive.get(r["slot"], "pending"), "coverage": round(coverage, 3),
+                     "captured_at": r["captured_at"], "capture_end": r["capture_end"]})
     pd.DataFrame(rows).sort_values(["slot", "zone"]).to_csv(DATA / "snapshots.csv", index=False)
 
     tfiles = sorted(shard_dir.glob("shard_[0-9][0-9]_thana.csv"))
     if tfiles:
-        t = pd.concat([pd.read_csv(f) for f in tfiles], ignore_index=True)
+        t = pd.concat([pd.read_csv(f, dtype={"slot": str}) for f in tfiles], ignore_index=True)
         t = t.groupby(["slot", "thana", "division"], as_index=False)[cols].sum()
-        t["timestamp"] = [(start + timedelta(seconds=int(x) * config.INTERVAL_SECONDS)).isoformat() for x in t["slot"]]
+        ts = g.drop_duplicates("slot").set_index("slot")["timestamp"]
+        t["timestamp"] = t["slot"].map(ts)
         t["score"] = [_score(*v) for v in t[cols].itertuples(index=False)]
         t[["timestamp", "slot", "thana", "division"] + cols + ["score"]].to_csv(DATA / "thana.csv", index=False)
+
+
+def load_conditions():
+    f = DATA / "conditions.csv"
+    if not f.exists():
+        return pd.DataFrame()
+    c = pd.read_csv(f, dtype={"slot": str})
+    c["date"] = c["timestamp"].str[:10]
+    return c
 
 
 def load_hourly():
@@ -197,11 +215,12 @@ def ai_summary(day_row, headlines, budget):
         return f.read_text().strip(), budget
     if not key or budget <= 0 or date.fromisoformat(day_row["date"]) >= TODAY:
         return None, budget
-    facts = {k: day_row[k] for k in ("date", "weekday", "day_type", "city_avg", "baseline", "level",
-                                      "peak_hour", "worst_zone", "rain_mm", "rain_effect", "tags")}
+    facts = {k: day_row.get(k) for k in ("date", "weekday", "day_type", "city_avg", "baseline", "level",
+                                          "peak_hour", "worst_zone", "rain_mm", "rain_effect", "tags", "temp_min",
+                                          "temp_max", "wind_mean", "gust_max", "aqi_mean", "aqi_max")}
     prompt = (
         "You are helping a traffic researcher in Dhaka, Bangladesh. Below are one day's congestion statistics "
-        "for greater Dhaka (a 24 x 32 km rectangle: DMP area plus Tongi-Gazipur, Ashulia, Purbachal, Rupganj, Kanchpur, Keraniganj) (score 0-100 from Google Maps traffic colours, higher = worse) "
+        "for a rectangle of Dhaka captured from Google Maps at zoom 17 (every 15 minutes by day, hourly 01:00-05:00) (score 0-100 from Google Maps traffic colours, higher = worse) "
         "and that day's news headlines. "
         "In 2-3 plain sentences written in Bangla, explain the most likely reasons for the day's traffic. "
         "Only use the evidence given; say 'সম্ভবত' where unsure and say so if the evidence does not explain it. No preamble.\n\n"
@@ -233,6 +252,24 @@ TAG_BN = {
 }
 
 
+def _num(series, how):
+    s = pd.to_numeric(series, errors="coerce").dropna()
+    if s.empty:
+        return None
+    v = getattr(s, how)()
+    return None if (isinstance(v, float) and math.isnan(v)) else round(float(v), 1)
+
+
+def day_conditions(cond, d):
+    """Temperature range, wind and air quality for one day, from data/conditions.csv."""
+    if cond.empty:
+        return {"temp_min": None, "temp_max": None, "wind_mean": None, "gust_max": None, "aqi_mean": None, "aqi_max": None}
+    c = cond[cond["date"] == d]
+    return {"temp_min": _num(c["temp_c"], "min"), "temp_max": _num(c["temp_c"], "max"),
+            "wind_mean": _num(c["wind_kmh"], "mean"), "gust_max": _num(c["gust_kmh"], "max"),
+            "aqi_mean": _num(c["us_aqi"], "mean"), "aqi_max": _num(c["us_aqi"], "max")}
+
+
 def level_for(ratio):
     if ratio is None:
         return "na", "তুলনার জন্য এখনো যথেষ্ট দিন হয়নি"
@@ -261,6 +298,7 @@ def build():
     weather = load_weather(dates)
     city = city.merge(weather, on=["date", "hour"], how="left")
     hol = holiday_lookup(sorted({int(d[:4]) for d in dates}))
+    cond = load_conditions()
 
     days = []
     for d in dates:
@@ -287,6 +325,7 @@ def build():
             "worst_zone_score": round(float(z.max()), 1) if len(z) else None,
             "rain_mm": round(float(rain_day.sum()), 1), "rain_hours": int((rain_day >= 0.5).sum()),
             "rain_effect": rain_effect,
+            **day_conditions(cond, d),
         })
 
     # baselines: typical score for the same kind of day (workday vs off-day), full days only
@@ -314,6 +353,12 @@ def build():
             if x["rain_effect"] is not None and x["rain_effect"] >= 5:
                 r += f"; বৃষ্টির সময় যানজট {x['rain_effect']:.0f} পয়েন্ট বেশি"
             reasons.append(r)
+        if x.get("aqi_max") is not None and x["aqi_max"] >= 151:
+            reasons.append(f"বায়ুর মান অস্বাস্থ্যকর (সর্বোচ্চ AQI {x['aqi_max']:.0f})")
+        if x.get("temp_max") is not None and x["temp_max"] >= 35:
+            reasons.append(f"তীব্র গরম (সর্বোচ্চ {x['temp_max']:.0f}°C)")
+        if x.get("gust_max") is not None and x["gust_max"] >= 40:
+            reasons.append(f"ঝোড়ো বাতাস (দমকা {x['gust_max']:.0f} কিমি/ঘণ্টা)")
         reasons += [f"সংবাদে: {TAG_BN.get(t, t)}" for t in x["tags"]]
         if x["level"] in ("heavier", "much_heavier") and not reasons:
             reasons.append("বাইরের কোনো কারণ পাওয়া যায়নি; সম্ভবত স্বাভাবিক কর্মদিবসের চাপ")
@@ -340,7 +385,8 @@ def build():
         "day_number": min(config.COLLECTION_DAYS, (last.date() - first.date()).days + 1),
         "total_days": config.COLLECTION_DAYS,
         "snapshots": int(df[df["zone"] == CITY].shape[0]),
-        "per_day": round(24 * 3600 / config.INTERVAL_SECONDS),
+        "per_day": config.SLOTS_PER_DAY,
+        "latest_conditions": latest_conditions(cond),
         "drive_ok": int((df[df["zone"] == CITY].get("drive", pd.Series(dtype=str)) == "ok").sum()),
         "div_meta": {k: {"bn": v} for k, v in ZONE_BN.items()},
         "mode": df["mode"].iloc[-1],
@@ -355,6 +401,14 @@ def build():
                    for k, v in x.items() if k != "headlines"} for x in days]).to_csv(DATA / "daily_summary.csv", index=False)
     write_dashboard(payload)
     print(f"Dashboard updated: {len(days)} days, {payload['snapshots']} snapshots.")
+
+
+def latest_conditions(cond):
+    if cond.empty:
+        return None
+    r = cond.iloc[-1]
+    keep = ["timestamp", "temp_c", "humidity", "rain_1h_mm", "weather", "wind_kmh", "wind_dir", "us_aqi", "aqi_category"]
+    return {k: (None if pd.isna(r.get(k)) else (r.get(k).item() if hasattr(r.get(k), "item") else r.get(k))) for k in keep}
 
 
 def write_dashboard(payload):

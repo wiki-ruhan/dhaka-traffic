@@ -1,46 +1,56 @@
-"""সেটিংস / Settings for the Dhaka traffic collector (v4: 761 km² rectangle, zoom 18, every 15 min, 30 days, 12 shards)."""
+"""সেটিংস / Settings for the Dhaka traffic collector.
+v6: zoom 17 full-resolution images (optimized WebP) with an English footer (timestamp to the second, weather, AQI, wind),
+snapshots every 15 min by day and every hour from 01:00 to 05:00, 30 days, no storage cap.
+"""
 import math
+from datetime import datetime, timedelta
 
-# ---------------- সময় / Timing ----------------
-INTERVAL_SECONDS = 900          # 15 মিনিট পরপর একটি স্ন্যাপশট চক্র (দিনে 96টি)
-COLLECTION_DAYS = 30            # 30 দিন পর স্বয়ংক্রিয়ভাবে বন্ধ হবে
-RUN_MINUTES = 340               # প্রতিটি GitHub রান ~5 ঘণ্টা 40 মিনিট চলে, তারপর নিজেই পরের রান চালু করে
+# ---------------- সময়সূচি / Schedule (Asia/Dhaka) ----------------
 TIMEZONE = "Asia/Dhaka"
+COLLECTION_DAYS = 30            # 30 দিন পর স্বয়ংক্রিয়ভাবে বন্ধ হবে
+DAY_INTERVAL_MIN = 15           # দিনে প্রতি 15 মিনিটে
+NIGHT_START_HOUR = 1            # রাত 1টা থেকে
+NIGHT_END_HOUR = 5              # ভোর 5টা পর্যন্ত
+NIGHT_INTERVAL_MIN = 60         # প্রতি ঘণ্টায় একটি (01:00, 02:00, 03:00, 04:00)
+RUN_MINUTES = 340               # প্রতিটি GitHub রান ~5 ঘণ্টা 40 মিনিট চলে, তারপর পরের রান দায়িত্ব নেয়
+LATE_GRACE_SECONDS = 120        # কোনো স্লট এর চেয়ে কম দেরিতে ধরা পড়লে তখনই তোলা হয়
 
-# ---------------- মানচিত্র / Map view ----------------
-ZOOM = 18                       # বিশ্লেষণের জুম: প্রতি পিক্সেল ≈ 0.55 মিটার (গলি পর্যন্ত)
-TILE = 3072                     # পুরো এলাকা এই মাপের টুকরো স্ক্রিনশটে তোলা হয় (জুম 18-এ প্রতি চক্রে 285টি)
-SHARDS = 12                     # এতগুলো GitHub সার্ভার একসাথে কাজ ভাগ করে নেয়, যাতে 15 মিনিটের মধ্যে শেষ হয়
-LABEL_ZOOM = 14                 # বিভাগ/থানার সীমানা-মানচিত্রের রেজোলিউশন (≈8.7 মিটার)
-OVERVIEW_ZOOM = 15              # Drive-এ রাখার জন্য পুরো এলাকার একটি ছবি এই জুমে তোলা হয় (জুম 18-এর পূর্ণ ছবি ~1–2 GB হতো)
-STUDY_VERSION = 4               # এই সংখ্যা বদলালে পুরোনো তথ্য data/old_vN ফোল্ডারে সরে যায় এবং ৩০ দিন নতুন করে শুরু হয়
-PAGE_WAIT_FIRST = 15000         # প্রথম পেজ লোডের পর অপেক্ষা (মিলিসেকেন্ড)
-PAGE_WAIT = 7000                # পরের প্রতিটি টুকরোর জন্য অপেক্ষা
-
-# ---------------- হটস্পট (ঐচ্ছিক) ----------------
-# পুরো এলাকাই এখন জুম 18-এ মাপা হয়, তাই আলাদা হটস্পট দরকার নেই। চাইলে এখানে যোগ করা যায়:
-# HOTSPOTS = {"Farmgate": {"bn": "ফার্মগেট", "at": (23.7577, 90.3897)}}
-HOTSPOT_ZOOM = 18
-HOTSPOT_SIZE = 2048
-HOTSPOT_IMAGE_EVERY = 4
-HOTSPOTS = {}
-
-# Drive-এ মোট জায়গার সর্বোচ্চ সীমা। প্রতিটি ছবি দরকার হলে স্বয়ংক্রিয়ভাবে ছোট করা হয় যাতে এই সীমা পার না হয়।
-STORAGE_LIMIT_GB = 13.5               # 14 GB-এর নিচে থাকতে কিছুটা নিরাপত্তা-ফাঁক
-
-# google.com/maps-এর সার্চ বক্স, বাটন ও কার্ড যেন মানচিত্র না ঢাকে, তাই চারপাশে ফাঁকা জায়গা রেখে পরে কেটে ফেলা হয়
-UI_MARGIN = {"left": 110, "top": 210, "right": 60, "bottom": 150}
-BOUNDS = {"north": 23.9501, "south": 23.6641, "west": 90.3103, "east": 90.5458}
-
-# গবেষণা এলাকা: আয়তক্ষেত্র, ব্যবহারকারীর স্ক্রিনশটের হুবহু সীমানা ও অনুপাত (972:1290 = 0.7535)।
-# উত্তরে বোর্ড বাজার (গাজীপুর), দক্ষিণে কেরানীগঞ্জ ও সিদ্ধিরগঞ্জ, পশ্চিমে আশুলিয়া-বিরুলিয়া, পূর্বে রূপগঞ্জ। ≈ 24.0 × 31.7 কিমি = 761 বর্গকিমি।
-# Study area: rectangle matching the user's screenshot exactly (lat, lng corners).
+# ---------------- এলাকা / Study area (rectangle) ----------------
+# ব্যবহারকারীর সর্বশেষ স্ক্রিনশটের হুবহু সীমানা ও অনুপাত (1568:2353 = 0.6664): উত্তরে টঙ্গী-আশুলিয়া, দক্ষিণে কেরানীগঞ্জ,
+# পশ্চিমে আমিনবাজার-বিরুলিয়া, পূর্বে বসুন্ধরা-বাড্ডা। ≈ 17.8 × 26.7 কিমি = 475 বর্গকিমি।
+# `python runner.py --plan` prints the size, tiles, runtime and storage for these bounds.
+BOUNDS = {"north": 23.9090, "south": 23.6688, "west": 90.2946, "east": 90.4696}
 STUDY_POLYGON = [
-    (23.9501, 90.3103), (23.9501, 90.5458), (23.6641, 90.5458), (23.6641, 90.3103),
+    (BOUNDS["north"], BOUNDS["west"]), (BOUNDS["north"], BOUNDS["east"]),
+    (BOUNDS["south"], BOUNDS["east"]), (BOUNDS["south"], BOUNDS["west"]),
 ]
 
-# ---------------- আবহাওয়া ও AI ----------------
-WEATHER_LAT, WEATHER_LNG = 23.8103, 90.4125
+# ---------------- মানচিত্র / Map ----------------
+ZOOM = 17                       # প্রতি পিক্সেল ≈ 1.1 মিটার: সংযোগ সড়ক ও পাড়ার রাস্তার যানজট দেখা যায়
+TILE = 3072                     # এলাকা এই মাপের টুকরোয় তোলা হয়, তারপর জোড়া লাগানো হয়
+LABEL_ZOOM = 14                 # বিভাগ/থানার সীমানা-মানচিত্রের রেজোলিউশন
+TILES_PER_RUNNER = 50           # একটি সার্ভার এক চক্রে এর বেশি টুকরো তুলবে না; জুম 17-এ পুরো এলাকা (48 টুকরো) একটি সার্ভারেই হয় → একটি পূর্ণ ছবি
+STUDY_VERSION = 6               # এই সংখ্যা বদলালে পুরোনো তথ্য data/old_vN-এ সরে যায় এবং ৩০ দিন নতুন করে শুরু হয়
+PAGE_WAIT_FIRST = 15000         # প্রথম পেজ লোডের পর অপেক্ষা (মিলিসেকেন্ড)
+PAGE_WAIT = 7000                # পরের প্রতিটি টুকরোর জন্য অপেক্ষা
+# google.com/maps-এর সার্চ বক্স, বাটন ও কার্ড যেন মানচিত্র না ঢাকে, তাই চারপাশে ফাঁকা জায়গা রেখে পরে কেটে ফেলা হয়
+UI_MARGIN = {"left": 110, "top": 210, "right": 60, "bottom": 150}
+
+# ---------------- ছবি / Saved images ----------------
+# ছবির ফরম্যাট: "webp" = সবচেয়ে ছোট ফাইল (JPEG-এর চেয়ে ~৩৫% ছোট, পূর্ণ রেজোলিউশন) | "jpg" | "png" (কোনো মান হারায় না, অনেক বড়)
+# WebP-তে প্রতি পাশে সর্বোচ্চ 16,383 পিক্সেল; এর বেশি হলে স্বয়ংক্রিয়ভাবে JPEG হয়।
+IMAGE_FORMAT = "webp"
+WEBP_QUALITY = 80               # 0–100
+WEBP_METHOD = 4                 # 0–6: বেশি = সামান্য ছোট কিন্তু ধীর
+MAX_WEBP_MP = 120               # WebP একটি ফাইলে ~150 মেগাপিক্সেলের বেশি নিতে পারে না, তাই ছবি ফালিতে ভাগ হয়
+JPG_QUALITY = 85
+PNG_COMPRESS_LEVEL = 4          # 0–9: বেশি = ছোট ফাইল কিন্তু ধীর
+DRIVE_ROOT = "Dhaka Traffic Snapshots"   # Google Drive-এ মূল ফোল্ডারের নাম
+UPLOAD_CHUNK_MB = 32            # বড় ফাইল এই মাপের টুকরোয় Drive-এ পাঠানো হয়
+
+# ---------------- আবহাওয়া, AQI ও AI ----------------
+# আবহাওয়া ও বাতাসের মান নেওয়া হয় এলাকার কেন্দ্র থেকে (Open-Meteo, বিনামূল্যে, কোনো key লাগে না)
+WEATHER_LAT, WEATHER_LNG = None, None   # None = এলাকার কেন্দ্র
 AI_MODEL = "claude-haiku-5-5"   # শুধু ANTHROPIC_API_KEY থাকলে ব্যবহার হয় (ঐচ্ছিক)
 WEEKEND_DAYS = {4, 5}           # শুক্র ও শনিবার
 
@@ -120,43 +130,39 @@ def unproject(x, y, zoom=None):
     return lat, lng
 
 
-# study frame at ZOOM (analysis), starting at the north-west corner
+# study frame at ZOOM, starting at the north-west corner
 FRAME_X0, FRAME_Y0 = project(BOUNDS["north"], BOUNDS["west"])
 _fx1, _fy1 = project(BOUNDS["south"], BOUNDS["east"])
 VIEW_W, VIEW_H = int(math.ceil(_fx1 - FRAME_X0)), int(math.ceil(_fy1 - FRAME_Y0))
 TILES_X, TILES_Y = math.ceil(VIEW_W / TILE), math.ceil(VIEW_H / TILE)
-GRID_W, GRID_H = TILES_X * TILE, TILES_Y * TILE          # tile grid covering the frame
+GRID_W, GRID_H = TILES_X * TILE, TILES_Y * TILE
 
-# label grid (zones/thanas) at LABEL_ZOOM: one label pixel = LABEL_FACTOR analysis pixels
+# parallel runners: each one takes a band of whole tile rows and saves it as one image ("strip")
+SHARDS = max(1, min(TILES_Y, math.ceil(TILES_X * TILES_Y / TILES_PER_RUNNER)))
+if IMAGE_FORMAT.lower() == "webp":  # one WebP file must stay below ~150 megapixels
+    _max_rows = max(1, int(MAX_WEBP_MP * 1e6 // (VIEW_W * TILE)))
+    SHARDS = max(SHARDS, math.ceil(TILES_Y / _max_rows))
+ROWS_PER_SHARD = math.ceil(TILES_Y / SHARDS)
+SHARDS = math.ceil(TILES_Y / ROWS_PER_SHARD)
+
+# label grid (zones/thanas) at LABEL_ZOOM
 LABEL_FACTOR = 2 ** (ZOOM - LABEL_ZOOM)
 assert TILE % LABEL_FACTOR == 0, "TILE must be divisible by 2**(ZOOM-LABEL_ZOOM)"
 LAB_W, LAB_H = GRID_W // LABEL_FACTOR, GRID_H // LABEL_FACTOR
-OVERVIEW_SCALE = 1 / LABEL_FACTOR                         # kept for older helpers
+OVERVIEW_SCALE = 1 / LABEL_FACTOR
 OV_W, OV_H = LAB_W, LAB_H
-
-# overview picture for Drive at OVERVIEW_ZOOM
-OVF_X0, OVF_Y0 = project(BOUNDS["north"], BOUNDS["west"], OVERVIEW_ZOOM)
-_ox1, _oy1 = project(BOUNDS["south"], BOUNDS["east"], OVERVIEW_ZOOM)
-OVF_W, OVF_H = int(math.ceil(_ox1 - OVF_X0)), int(math.ceil(_oy1 - OVF_Y0))
-OVF_TILES_X, OVF_TILES_Y = math.ceil(OVF_W / TILE), math.ceil(OVF_H / TILE)
+CENTER_LAT = (BOUNDS["north"] + BOUNDS["south"]) / 2
+CENTER_LNG = (BOUNDS["west"] + BOUNDS["east"]) / 2
 
 
 def latlng_to_px(lat, lng):
-    """Pixel position inside the full-resolution tile grid (zoom ZOOM)."""
     x, y = project(lat, lng)
     return x - FRAME_X0, y - FRAME_Y0
 
 
 def latlng_to_ov(lat, lng):
-    """Pixel position in the label grid (zoom LABEL_ZOOM)."""
     x, y = latlng_to_px(lat, lng)
     return x / LABEL_FACTOR, y / LABEL_FACTOR
-
-
-def latlng_to_overview(lat, lng):
-    """Pixel position in the Drive overview picture (zoom OVERVIEW_ZOOM)."""
-    x, y = project(lat, lng, OVERVIEW_ZOOM)
-    return x - OVF_X0, y - OVF_Y0
 
 
 def browser_center(world_cx, world_cy, zoom, margins):
@@ -167,3 +173,48 @@ def browser_center(world_cx, world_cy, zoom, margins):
 
 def metres_per_px(lat, zoom=None):
     return 156543.03392 * math.cos(math.radians(lat)) / (2 ** (ZOOM if zoom is None else zoom))
+
+
+def area_km2():
+    ns = (BOUNDS["north"] - BOUNDS["south"]) * 111.0
+    ew = (BOUNDS["east"] - BOUNDS["west"]) * 111.32 * math.cos(math.radians(CENTER_LAT))
+    return ns, ew, ns * ew
+
+
+# ---------------- Schedule helpers ----------------
+def slots_for_day(day):
+    """All snapshot times on one calendar day (naive local times): hourly 01:00–04:00, otherwise every 15 min."""
+    out = []
+    for h in range(24):
+        if NIGHT_START_HOUR <= h < NIGHT_END_HOUR:
+            mins = range(0, 60, NIGHT_INTERVAL_MIN)
+        else:
+            mins = range(0, 60, DAY_INTERVAL_MIN)
+        out += [datetime(day.year, day.month, day.day, h, m) for m in mins]
+    return out
+
+
+SLOTS_PER_DAY = len(slots_for_day(datetime(2026, 1, 1)))
+TOTAL_SLOTS = SLOTS_PER_DAY * COLLECTION_DAYS
+
+
+def next_slot(t):
+    """First snapshot time strictly after t (t is timezone-aware)."""
+    base = t.replace(tzinfo=None)
+    for d in (0, 1, 2):
+        for s in slots_for_day(base + timedelta(days=d)):
+            if s > base:
+                return s.replace(tzinfo=t.tzinfo)
+
+
+def prev_slot(t):
+    """Last snapshot time at or before t."""
+    base = t.replace(tzinfo=None)
+    for d in (0, 1):
+        day_slots = [s for s in slots_for_day(base - timedelta(days=d)) if s <= base]
+        if day_slots:
+            return day_slots[-1].replace(tzinfo=t.tzinfo)
+
+
+def slot_id(t):
+    return t.strftime("%Y%m%d-%H%M")

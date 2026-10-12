@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>ঢাকা যানজট লগ: ৩০ দিন, প্রতি ১৫ মিনিট, জুম ১৮</title>
+<title>ঢাকা যানজট লগ: ৩০ দিন, জুম ১৭, দিনে প্রতি ১৫ মিনিট</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Hind+Siliguri:wght@400;500;600;700&family=Barlow+Condensed:wght@500;700&display=swap" rel="stylesheet">
@@ -64,7 +64,7 @@ footer{color:var(--muted);font-size:.85rem;margin-top:20px;max-width:72ch}
 <main>
   <header>
     <h1>ঢাকা মেট্রোপলিটন এলাকার যানজট লগ</h1>
-    <p class="note" id="sub">Google Maps ট্রাফিক রঙ থেকে প্রতি 15 মিনিটে জুম 18-এ মাপা যানজট। ২৪ × ৩২ কিমি আয়তক্ষেত্র: DMP-এর ৮টি ট্রাফিক বিভাগ এবং টঙ্গী থেকে কেরানীগঞ্জ, আশুলিয়া থেকে রূপগঞ্জ পর্যন্ত আশপাশের ৮টি এলাকা।</p>
+    <p class="note" id="sub">Google Maps ট্রাফিক রঙ থেকে জুম 17-এ (প্রতি পিক্সেল ≈ 1.1 মিটার, সংযোগ সড়কসহ) মাপা যানজট। দিনে প্রতি 15 মিনিটে, রাত 1টা–5টা প্রতি ঘণ্টায়। প্রতিটি ছবির নিচে সময়, তাপমাত্রা, বৃষ্টি, বাতাস ও AQI লেখা থাকে।</p>
     <div class="status" id="status"></div>
   </header>
 
@@ -103,8 +103,8 @@ footer{color:var(--muted);font-size:.85rem;margin-top:20px;max-width:72ch}
   </section>
 
   <footer>
-    পদ্ধতি: প্রতিটি স্ন্যাপশট জুম 18-এ (প্রতি পিক্সেল ≈ 0.55 মিটার) ২৮৫টি টুকরোয় তোলা হয়; প্রতিটি টুকরোয় সবুজ=0, কমলা=1, লাল=2, গাঢ় লাল=3 ওজন দিয়ে রাস্তার পিক্সেলের গড় নেওয়া হয় এবং 0–100 স্কেলে রূপান্তর করা হয়।
-    বিভাগের সীমানা থানার আনুমানিক কেন্দ্রবিন্দু থেকে তৈরি। কাঁচা তথ্য: data/snapshots.csv, data/thana.csv, data/daily_summary.csv।
+    পদ্ধতি: প্রতিটি স্ন্যাপশট জুম 17-এ (প্রতি পিক্সেল ≈ 1.1 মিটার) টুকরো টুকরো করে তোলা ও জোড়া লাগানো হয়; প্রতিটি টুকরোয় সবুজ=0, কমলা=1, লাল=2, গাঢ় লাল=3 ওজন দিয়ে রাস্তার পিক্সেলের গড় নেওয়া হয় এবং 0–100 স্কেলে রূপান্তর করা হয়।
+    বিভাগের সীমানা থানার আনুমানিক কেন্দ্রবিন্দু থেকে তৈরি। কাঁচা তথ্য: data/snapshots.csv, data/thana.csv, data/conditions.csv, data/daily_summary.csv। আবহাওয়া ও AQI: Open-Meteo (মডেল-ভিত্তিক অনুমান)।
     <span id="updated"></span>
   </footer>
 </main>
@@ -136,6 +136,11 @@ function render(){
   [[`${D.day_number}/${D.total_days}`,'দিন'],[D.snapshots.toLocaleString('en'),'স্ন্যাপশট'],
    [D.per_day,'দিনে স্ন্যাপশট'],[D.drive_ok.toLocaleString('en'),'Drive-এ সংরক্ষিত'],[D.last_snapshot,'শেষ স্ন্যাপশট']]
    .forEach(([v,l],i)=>{const d=el('div',i===4?'wide':'');d.append(el('b','',v),el('span','',l));st.append(d);});
+  const lc=D.latest_conditions;
+  if(lc){const d=el('div','wide');
+    const parts=[lc.temp_c!=null?`${lc.temp_c}°C`:null, lc.rain_1h_mm!=null?`বৃষ্টি ${lc.rain_1h_mm} মিমি`:null,
+      lc.wind_kmh!=null?`বাতাস ${Math.round(lc.wind_kmh)} কিমি/ঘ ${lc.wind_dir||''}`:null, lc.us_aqi!=null?`AQI ${lc.us_aqi}`:null].filter(Boolean);
+    d.append(el('b','',parts.join(' · ')||'—'),el('span','','সর্বশেষ আবহাওয়া ও বায়ুর মান'));st.append(d);}
 
   // heatmap
   const h=document.getElementById('heat');
@@ -182,6 +187,9 @@ function render(){
     c.append(el('h3','',`${fmtDate(d.date)}, ${d.weekday_bn}: স্কোর ${d.city_avg} (${d.level_bn})`));
     const worst=d.worst_zone?`, সবচেয়ে খারাপ বিভাগ ${(D.div_meta[d.worst_zone]||{}).bn||d.worst_zone}`:'';
     c.append(el('div','meta',`${d.day_type_bn}. সর্বোচ্চ যানজট ${String(d.peak_hour).padStart(2,'0')}:00 টায় (স্কোর ${d.city_peak})${worst}.`));
+    const cparts=[d.temp_min!=null?`তাপমাত্রা ${d.temp_min}–${d.temp_max}°C`:null, d.rain_mm!=null?`বৃষ্টি ${d.rain_mm} মিমি`:null,
+      d.wind_mean!=null?`গড় বাতাস ${d.wind_mean} কিমি/ঘ`:null, d.aqi_max!=null?`সর্বোচ্চ AQI ${d.aqi_max}`:null].filter(Boolean);
+    if(cparts.length) c.append(el('div','meta',cparts.join(' | ')));
     if(d.reasons.length){const ul=el('ul');d.reasons.forEach(x=>ul.append(el('li','',x)));c.append(ul);}
     if(d.ai) c.append(el('p','ai',d.ai));
     if(d.headlines&&d.headlines.length){
