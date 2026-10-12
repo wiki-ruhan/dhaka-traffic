@@ -1,9 +1,9 @@
 name: Dhaka traffic collector
 
 on:
-  workflow_dispatch:          # আপনি ফোন থেকে "Run workflow" চাপলে শুরু হয়
+  workflow_dispatch:          # Actions → Run workflow (ফোন বা পিসি থেকে)
   schedule:
-    - cron: "17 */3 * * *"    # নিরাপত্তা: কোনো কারণে চেইন থেমে গেলে 3 ঘণ্টার মধ্যে আবার চালু হবে
+    - cron: "17 */3 * * *"    # নিরাপত্তা: চেইন থেমে গেলে 3 ঘণ্টার মধ্যে আবার চালু হবে
 
 permissions:
   contents: write
@@ -14,42 +14,57 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  collect:
+  init:
     runs-on: ubuntu-latest
-    timeout-minutes: 355
+    outputs:
+      done: ${{ steps.state.outputs.done }}
     steps:
       - uses: actions/checkout@v4
-
-      - name: Check whether the 30 days are already finished
-        id: check
-        run: |
-          if [ -f data/state.json ] && grep -q '"finished": true' data/state.json; then
-            echo "done=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "done=false" >> "$GITHUB_OUTPUT"
-          fi
-
+        with:
+          ref: ${{ github.ref_name }}
       - uses: actions/setup-python@v5
-        if: steps.check.outputs.done == 'false'
+        with:
+          python-version: "3.12"
+      - name: Create or check data/state.json
+        id: state
+        run: |
+          git config user.name "dhaka-traffic-bot"
+          git config user.email "actions@users.noreply.github.com"
+          result=$(python runner.py --init | tail -n 1)
+          echo "$result"
+          if [ "$result" = "finished" ]; then echo "done=true" >> "$GITHUB_OUTPUT"; else echo "done=false" >> "$GITHUB_OUTPUT"; fi
+          git add -A data
+          git commit -q -m "study state" || true
+          git push -q || true
+
+  collect:
+    needs: init
+    if: needs.init.outputs.done == 'false'
+    runs-on: ubuntu-latest
+    timeout-minutes: 355
+    strategy:
+      fail-fast: false
+      max-parallel: 12
+      matrix:
+        shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]   # config.py-এর SHARDS-এর সাথে মিলিয়ে রাখুন
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}     # latest commit, including the state written by the init job
+      - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
           cache: pip
-
       - name: Cache browser
-        if: steps.check.outputs.done == 'false'
         uses: actions/cache@v4
         with:
           path: ~/.cache/ms-playwright
           key: pw-${{ runner.os }}-${{ hashFiles('requirements.txt') }}
-
       - name: Install
-        if: steps.check.outputs.done == 'false'
         run: |
           pip install -r requirements.txt
           python -m playwright install --with-deps chromium
-
-      - name: Take snapshots every 9.6 minutes
-        if: steps.check.outputs.done == 'false'
+      - name: Take snapshots every 15 minutes (shard ${{ matrix.shard }})
         env:
           GOOGLE_MAPS_API_KEY: ${{ secrets.GOOGLE_MAPS_API_KEY }}
           DRIVE_WEBAPP_URL: ${{ secrets.DRIVE_WEBAPP_URL }}
@@ -58,14 +73,21 @@ jobs:
         run: |
           git config user.name "dhaka-traffic-bot"
           git config user.email "actions@users.noreply.github.com"
-          python runner.py
+          git pull -q || true
+          python runner.py --shard ${{ matrix.shard }}
 
-      - name: Hand over to the next run
-        if: always() && steps.check.outputs.done == 'false'
+  handover:
+    needs: [init, collect]
+    if: always() && needs.init.outputs.done == 'false'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+      - name: Start the next run
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          git pull -q || true
           if grep -q '"finished": true' data/state.json 2>/dev/null; then
             echo "30 days finished. No new run."
           else
